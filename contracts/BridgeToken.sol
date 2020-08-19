@@ -13,7 +13,6 @@ contract BridgeToken is SmartToken {
         _decimals = 6;
         totalSupply = 10000000000e6;
         _balances[msg.sender] = totalSupply;
-        stopped = false;
     }
 
     /**
