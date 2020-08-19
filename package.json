@@ -1,0 +1,19 @@
+{
+  "name": "bridgetoken",
+  "version": "1.0.0",
+  "description": "",
+  "main": "tronbox-config.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "tronbox test"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "chai": "^4.2.0",
+    "chalk": "^4.1.0",
+    "sleep": "^6.3.0"
+  }
+}
