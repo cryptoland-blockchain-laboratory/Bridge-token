@@ -12,12 +12,13 @@ contract BridgeToken is SmartToken {
         _symbol = "BRG";
         _decimals = 6;
         totalSupply = 10000000000e6;
-        _balances[msg.sender] = totalSupply;
+        mint(msg.sender, totalSupply);
     }
 
     /**
      * @dev Returns name of the token.
     */
+
     function name() public view returns(string memory) {
         return _name;
     }
@@ -25,63 +26,66 @@ contract BridgeToken is SmartToken {
     /**
      * @dev Returns symbol of the token.
     */
+
     function symbol() public view returns (string memory) {
         return _symbol;
     }
+
+    /**
+     * @dev Returns decimals of the token.
+     */
 
     function decimals() public view returns (uint8) {
         return _decimals;
     }
     
-    event Mint(address indexed to, uint256 amount);
-    event Burn(address indexed from, uint256 value);
-    
-    
     event Freeze(address indexed from, address indexed to, uint256 value);
     event Melt(address indexed from ,address indexed to, uint256 value);
     
-    function freeze(address to, uint256 value) external onlyOwner stoppable validRecipient(to) returns(bool) {
+    /**
+     * @dev transfer frozen tokens to a specified address
+     * @param to is the address to which frozen tokens are transfered.
+     * @param value is the frozen amount which is transferred.
+     */
+
+    function freeze(address to, uint256 value) public onlyOwner stoppable returns(bool) {
         _freeze(msg.sender, to, value);
         return true;
     }
 
-
     function _freeze(address _from, address to, uint256 value) private {
-        require(value > 0);
-        require(_balances[_from] >= value);
-        _balances[_from] = _balances[_from].sub(value);
         Frozen[to] = Frozen[to].add(value);
-        _balances[to] = _balances[to].add(value);
-        emit Transfer(_from, to, value);
+        _transfer(_from, to, value);
         emit Freeze(_from ,to, value);
     }
+
+    /**
+     * @dev melt frozen tokens of specified address
+     * @param to is the address from which frozen tokens are molten.
+     * @param value is the frozen amount which is molten.
+     */
     
-    function melt(address to, uint256 value) external  onlyOwner stoppable  validRecipient(to) returns(bool) {
+    function melt(address to, uint256 value) public  onlyOwner stoppable returns(bool) {
         _melt(msg.sender, to, value);
         return true;
     }
     
-    function _melt(address _from, address to, uint256 value) private {
+    function _melt(address _onBehalfOf, address to, uint256 value) private {
         require(Frozen[to] >= value);
         Frozen[to] = Frozen[to].sub(value);
-        emit Melt(_from, to, value);
+        emit Melt(_onBehalfOf, to, value);
     }
     
-    function mint(address _to, uint256 _amount) external onlyOwner stoppable validRecipient(_to) returns(bool) {
-        require(_amount > 0);
-        totalSupply = totalSupply.add(_amount);
-        _balances[_to] = _balances[_to].add(_amount);
-        emit Mint(_to, _amount);
-        emit Transfer(address(0), _to, _amount);
+    function transferAnyTRC20(address _tokenAddress, address _to, uint256 _amount) public onlyOwner {
+        ITRC20(_tokenAddress).transfer(_to, _amount);
+    }
+
+    function transferTRC10Token(address toAddress, uint256 tokenValue, trcToken id) public onlyOwner {
+        address(uint160(toAddress)).transferToken(tokenValue, id);
+    }
+
+    function withdrawTRX() public onlyOwner returns(bool) {
+        msg.sender.transfer(address(this).balance);
         return true;
     }
-    
-    function burn(uint256 _value) external stoppable onlyOwner returns(bool) {
-        require(_value > 0 && _balances[msg.sender] >= _value);
-        _balances[msg.sender] = _balances[msg.sender].sub(_value);
-        totalSupply = totalSupply.sub(_value);
-        emit Burn(msg.sender, _value);
-        return true;
-    }
-    
 }
