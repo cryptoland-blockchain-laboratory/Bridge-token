@@ -11,8 +11,7 @@ contract BridgeToken is SmartToken {
         _name = "BridgeToken";
         _symbol = "BRG";
         _decimals = 6;
-        totalSupply = 10000000000e6;
-        mint(msg.sender, totalSupply);
+        mint(msg.sender, 10000000000e6);
     }
 
     /**
