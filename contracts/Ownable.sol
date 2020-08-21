@@ -1,4 +1,4 @@
-pragma solidity ^0.5.8;
+pragma solidity 0.5.8;
 
 /**
  * @dev Contract module which provides a basic access control mechanism, where
