@@ -35,7 +35,7 @@ contract SmartToken is ITRC677, StandardToken {
      * @param _data extra data to be passed to the receiving contract.
      */
 
-    function transferAndCall(address _to, uint256 _value, bytes memory _data) public returns(bool success) {
+    function transferAndCall(address _to, uint256 _value, bytes memory _data) public validRecipient(_to) returns(bool success) {
         _transfer(msg.sender, _to, _value);
         emit Transfer(msg.sender, _to, _value, _data);
         if (isContract(_to)) {
