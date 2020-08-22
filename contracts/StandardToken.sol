@@ -69,7 +69,7 @@ contract StandardToken is ITRC20, BasicToken {
      * Requirements: `spender` cannot be the zero address.
      */
 
-    function increaseAllowance(address spender, uint256 addedValue) public stoppable returns(bool) {
+    function increaseAllowance(address spender, uint256 addedValue) public stoppable validRecipient(spender) returns(bool) {
         _approve(msg.sender, spender, _allowed[msg.sender][spender].add(addedValue));
         return true;
     }
