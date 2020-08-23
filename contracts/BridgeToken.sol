@@ -8,7 +8,7 @@ contract BridgeToken is SmartToken {
     uint8 private _decimals;
     
     constructor() public {
-        _name = "BridgeToken";
+        _name = "Bridge Token";
         _symbol = "BRG";
         _decimals = 6;
         mint(msg.sender, 10000000000e6);
