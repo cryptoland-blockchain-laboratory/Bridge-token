@@ -1,6 +1,7 @@
 {
   "name": "bridgetoken",
   "version": "1.0.0",
+  "repository": "https://github.com/cryptoland-blockchain-laboratory/Bridge-token",
   "description": "",
   "main": "tronbox-config.js",
   "directories": {
