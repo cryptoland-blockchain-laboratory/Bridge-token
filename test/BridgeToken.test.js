@@ -1,372 +1,325 @@
 const { assert } = require("chai");
-const wait = require("./wait.js");
-var BridgeToken = artifacts.require("./BridgeToken.sol");
 
 contract("BridgeToken", (accounts) => {
-  let token;
-  const TOKEN_NAME = "BridgeToken";
-  const TOKEN_SYMBOL = "BRG";
+  let token, owner, recipient;
+
+  let BridgeToken = artifacts.require("./BridgeToken.sol");
+  let Token677ReceiverMock = artifacts.require("./Token677ReceiverMock.sol");
+  let NotTRC677Compatible = artifacts.require("./NotTRC677Compatible.sol");
+  let BrgReceiver = artifacts.require("./BrgReceiver.sol");
+
   const TOKEN_UNIT = 1000000;
   const TOKEN_TOTAL_SUPPLY = 10000000000;
-  const TOKEN_DECIMALS = 6;
-  const INVALID_ADDRESS = "0x0";
+  const emptyAddress = "410000000000000000000000000000000000000000";
 
   before(async () => {
+    owner = accounts[0];
+    recipient = accounts[1];
     token = await BridgeToken.deployed();
   });
 
-  it("should have an owner", async () => {
-    const owner = await token.owner();
-    assert.equal(accounts[0], tronWeb.address.fromHex(owner));
-  });
-
-  it("should change owner after transfer", async function () {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const owner = await token.owner();
-        assert.notEqual(accounts[3], tronWeb.address.fromHex(owner));
-
-        const _token = await tronWeb.contract().at(token.address);
-        const watcher = await _token
-          .OwnershipTransferred()
-          .watch(async (err, res) => {
-            if (err) throw err;
-            if (res) {
-              assert.equal(res.name, "OwnershipTransferred");
-              assert.equal(
-                res.result.previousOwner,
-                tronWeb.address.toHex(accounts[0])
-              );
-              assert.equal(
-                res.result.newOwner,
-                tronWeb.address.toHex(accounts[3])
-              );
-              watcher.stop();
-              resolve();
-            }
-          });
-
-        await token.transferOwnership(accounts[3], { from: accounts[0] });
-
-        const new_owner = await token.owner();
-        assert.equal(accounts[3], tronWeb.address.fromHex(new_owner));
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-
-  it("should prevent non-owners from transfering", async function () {
-    try {
-      await token.transferOwnership(accounts[4], {
-        from: accounts[5],
-        shouldPollResponse: true,
-      });
-      assert(false, "didn't throw should prevent non-owners from transferin");
-    } catch (error) {
-      assert.equal(error, "REVERT opcode executed");
-    }
-  });
-
-  it("should guard ownership against stuck state", async function () {
-    try {
-      await token.transferOwnership(null, { from: accounts[0] });
-      assert(false, "didn't throw should guard ownership against stuck state");
-    } catch (error) {
-      assert.equal(error.reason, "invalid address");
-    }
-  });
-
-  it("should lose owner after renouncement", async function () {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const owner = await token.owner();
-        assert.notEqual(tronWeb.address.fromHex(owner), accounts[9]);
-
-        assert.equal(tronWeb.address.fromHex(owner), accounts[3]);
-
-        const _token = await tronWeb.contract().at(token.address);
-        const watcher = await _token
-          .OwnershipRenounced()
-          .watch(async (err, res) => {
-            if (err) throw err;
-            if (res) {
-              assert.equal(res.name, "OwnershipRenounced");
-              assert.equal(
-                tronWeb.address.toHex(res.result.previousOwner),
-                tronWeb.address.toHex(accounts[3])
-              );
-
-              watcher.stop();
-              resolve();
-            }
-          });
-
-        await token.renounceOwnership({ from: accounts[3] });
-        const owner3 = await token.owner();
-        assert.notEqual(owner3, tronWeb.address.toHex(accounts[3]));
-
-        const read_owner = await token.owner();
-        assert.equal(read_owner, "410000000000000000000000000000000000000000");
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-
-  it("should prevent non-owners from renouncement", async () => {
-    try {
-      await token.renounceOwnership({
-        from: accounts[5],
-        shouldPollResponse: true,
-      });
-      assert(false, "didn't throw should prevent non-owners from renouncement");
-    } catch (error) {
-      assert.equal(error, "REVERT opcode executed");
-    }
-  });
-
-  // Token
-
-  it("should verifies the token symbol after construction", async function () {
-    let symbol = await token.call("symbol");
-    assert.equal(symbol, TOKEN_SYMBOL);
-  });
-
-  it("should start with the correct decimals", async function () {
-    const decimals = await token.decimals();
-    assert.equal(decimals, TOKEN_DECIMALS);
-  });
-
-  it("should verifies the initial total supply", async function () {
-    const totalSupply = await token.call("totalSupply");
-    assert.equal(totalSupply.toString(), TOKEN_TOTAL_SUPPLY * TOKEN_UNIT);
-  });
-
-  it("should verifies the token name after construction", async function () {
-    const name = await token.call("name");
-    assert.equal(name, TOKEN_NAME);
-  });
-
-  it("assigns all of the balance to the owner", async () => {
-    let balance = await token.balanceOf.call(accounts[0]);
+  it("should assign all of the balance to the owner", async () => {
+    let balance = await token.balanceOf.call(owner);
     assert.equal(balance.toString(), TOKEN_TOTAL_SUPPLY * TOKEN_UNIT);
   });
 
-  it("should verifies the balances after a transfer", async () => {
-    await token.transfer(accounts[1], 500 * TOKEN_UNIT);
-    wait(3);
-    const balanceAcc0 = await token.balanceOf(accounts[0]);
-    assert.equal(balanceAcc0.toString(), 9999999500000000);
+  describe("#transfer(address,uint256)", () => {
+    let receiver, sender, transferAmount;
 
-    const balanceAcc1 = await token.balanceOf(accounts[1]);
-    assert.equal(balanceAcc1.toString(), 500 * TOKEN_UNIT);
-  });
+    beforeEach(async () => {
+      receiver = await Token677ReceiverMock.deployed();
+      sender = accounts[1];
+      transferAmount = 100;
 
-  it("should verifies that a transfer fires a Transfer event", async () => {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const _token = await tronWeb.contract().at(token.address);
-        wait(3);
-        const watcher = await _token.Transfer().watch((err, res) => {
-          if (err) throw err;
-          if (res) {
-            assert.equal(res.name, "Transfer");
-            assert.equal(res.result.from, tronWeb.address.toHex(accounts[0]));
-            assert.equal(res.result.to, tronWeb.address.toHex(accounts[1]));
-            assert.equal(res.result.value, 500 * TOKEN_UNIT);
-            watcher.stop();
-            resolve();
-          }
-        });
-
-        await token.transfer(accounts[1], 500 * TOKEN_UNIT);
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-
-  it("should verifies the allowance after an approval", async () => {
-    await token.approve(accounts[1], 500 * TOKEN_UNIT);
-    wait(3);
-    let allowance = await token.allowance.call(accounts[0], accounts[1]);
-    console.log(allowance.toString());
-    // assert.equal(allowance, 500 * TOKEN_UNIT);
-  });
-
-  it("should verifies that an approval fires an Approval event", async () => {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const _token = await tronWeb.contract().at(token.address);
-        wait(3);
-        const watcher = await _token.Approval().watch((err, res) => {
-          if (err) throw err;
-          if (res) {
-            assert.equal(res.name, "Approval");
-            assert.equal(tronWeb.address.fromHex(token.address), res.contract);
-            assert.equal(res.result.owner, tronWeb.address.toHex(accounts[0]));
-            assert.equal(
-              res.result.spender,
-              tronWeb.address.toHex(accounts[1])
-            );
-            assert.equal(res.result.value, 500 * TOKEN_UNIT);
-            watcher.stop();
-            resolve();
-          }
-        });
-        await token.approve(accounts[1], 500 * TOKEN_UNIT);
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-
-  it("should verifies the balances after transferring from another account", async () => {
-    await token.approve(accounts[1], 500 * TOKEN_UNIT);
-    wait(3);
-    await token.transferFrom(accounts[0], accounts[2], 50 * TOKEN_UNIT, {
-      from: accounts[1],
-    });
-    wait(3);
-    let balance = await token.balanceOf(accounts[0]);
-    assert.equal(balance.toString(), 9999998950000000);
-
-    balance = await token.balanceOf(accounts[1]);
-    assert.equal(balance.toString(), 1000000000);
-
-    balance = await token.balanceOf(accounts[2]);
-    assert.equal(balance.toString(), 50 * TOKEN_UNIT);
-  });
-
-  it("should verifies that transferring from another account fires a Transfer event", async () => {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const _token = await tronWeb.contract().at(token.address);
-        wait(3);
-        const watcher = await _token.Transfer().watch((err, res) => {
-          if (err) throw err;
-          if (res) {
-            assert.equal(res.name, "Transfer");
-            assert.equal(res.result.from, tronWeb.address.toHex(accounts[0]));
-            assert.equal(res.result.to, tronWeb.address.toHex(accounts[2]));
-            assert.equal(res.result.value, 50 * TOKEN_UNIT);
-            watcher.stop();
-            resolve();
-          }
-        });
-
-        await token.approve(accounts[1], 500 * TOKEN_UNIT);
-        wait(3);
-        await token.transferFrom(accounts[0], accounts[2], 50 * TOKEN_UNIT, {
-          from: accounts[1],
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-
-  it("should verifies the new allowance after transferring from another account", async () => {
-    await token.approve(accounts[1], 500 * TOKEN_UNIT);
-    wait(3);
-    await token.transferFrom(accounts[0], accounts[2], 50 * TOKEN_UNIT, {
-      from: accounts[1],
-    });
-    wait(3);
-    let allowance = await token.allowance.call(accounts[0], accounts[1]);
-    assert.equal(allowance, 450 * TOKEN_UNIT);
-  });
-
-  it("should throw when attempting to transfer from another account more than the allowance", async () => {
-    try {
-      await token.approve(accounts[1], 100 * TOKEN_UNIT);
-      wait(3);
-      await token.transferFrom(accounts[0], accounts[2], 200 * TOKEN_UNIT, {
-        from: accounts[1],
-      });
-      assert(
-        false,
-        "didn't throw attempting to transfer from another account more than the allowance"
-      );
-    } catch (error) {
-      assert.equal(
-        error.message,
-        "didn't throw attempting to transfer from another account more than the allowance"
-      );
-    }
-  });
-
-  it("should throw when attempting to transfer more than the balance", async () => {
-    try {
-      await token.transfer(accounts[2], 50000 * TOKEN_UNIT, {
-        from: accounts[1],
+      await token.transfer(sender, transferAmount, {
+        from: owner,
         shouldPollResponse: true,
       });
-      assert(
-        false,
-        "didn't throw when attempting to transfer more than the balance"
-      );
-    } catch (error) {
-      assert.equal(error, "REVERT opcode executed");
-    }
-  });
+      assert.equal(await receiver.sentValue(), 0);
+    });
 
-  it("should throw when attempting to transfer to an invalid address", async () => {
-    try {
-      await token.transfer(INVALID_ADDRESS, 100000 * TOKEN_UNIT, {
-        from: accounts[1],
+    it("should throw when attempting to transfer to a empty address", async () => {
+      try {
+        await token.transfer(emptyAddress, transferAmount, {
+          from: sender,
+          shouldPollResponse: true,
+        });
+        assert(false, "didn't throw in case of sending to a empty address");
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+
+    it("should not let you transfer to the token contract itself", async () => {
+      try {
+        await token.transfer(token.address, transferAmount, {
+          from: sender,
+          shouldPollResponse: true,
+        });
+        assert(
+          false,
+          "didn't throw in case of sending token to the token contract"
+        );
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+
+    it("should transfer the tokens", async () => {
+      let balance = await token.balanceOf.call(receiver.address);
+      assert.equal(balance, 0);
+
+      await token.transfer(receiver.address, transferAmount, { from: sender });
+
+      balance = await token.balanceOf.call(receiver.address);
+      assert.equal(balance.toString(), transferAmount);
+    });
+
+    it("should NOT call the fallback on transfer", async () => {
+      await token.transfer(receiver.address, transferAmount, { from: sender });
+
+      let calledFallback = await receiver.calledFallback();
+      assert(!calledFallback);
+    });
+
+    it("should return true when the transfer succeeds", async () => {
+      let success = await token.transfer(receiver.address, transferAmount, {
+        from: sender,
+        shouldPollResponse: true,
       });
-      assert(
-        false,
-        "didn't throw when attempting to define allowance for an invalid address"
-      );
-    } catch (error) {
-      assert.equal(error.reason, "invalid address");
-    }
-  });
+      assert(success);
+    });
 
-  it("should throw when attempting to transfer from an invalid account", async () => {
-    try {
-      await token.approve(accounts[1], 100 * TOKEN_UNIT);
-      wait(3);
-      await token.transferFrom(INVALID_ADDRESS, accounts[2], 50 * TOKEN_UNIT, {
-        from: accounts[1],
+    it("should throw when the transfer fails", async () => {
+      try {
+        await token.transfer(receiver.address, 100000, {
+          from: sender,
+          shouldPollResponse: true,
+        });
+        assert(false, "didn't throw in case of lack of asset");
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+
+    context("when sending to a contract that is not TRC677 compatible", () => {
+      let nonTRC677;
+
+      beforeEach(async () => {
+        nonTRC677 = await NotTRC677Compatible.deployed();
       });
-      assert(
-        false,
-        "didn't throw when attempting to transfer from an invalid account"
-      );
-    } catch (error) {
-      assert.equal(error.reason, "invalid address");
-    }
-  });
 
-  it("should throw when attempting to transfer from to an invalid account", async () => {
-    try {
-      await token.approve(accounts[1], 100 * TOKEN_UNIT);
-      wait(3);
-      await token.transferFrom(accounts[0], INVALID_ADDRESS, 50 * TOKEN_UNIT, {
-        from: accounts[1],
+      it("should transfer the token", async () => {
+        let balance = await token.balanceOf.call(nonTRC677.address);
+        assert.equal(balance, 0);
+
+        await token.transfer(nonTRC677.address, transferAmount, {
+          from: sender,
+        });
+
+        balance = await token.balanceOf.call(nonTRC677.address);
+        assert.equal(balance.toString(), transferAmount);
       });
-      assert(
-        false,
-        "didn't throw when attempting to transfer from to an invalid account"
-      );
-    } catch (error) {
-      assert.equal(error.reason, "invalid address");
-    }
+    });
   });
 
-  it("should throw when attempting to define allowance for an invalid address", async () => {
-    try {
-      await token.approve(INVALID_ADDRESS, 10, { shouldPollResponse: true });
-      assert(
-        false,
-        "didn't throw when attempting to define allowance for an invalid address"
-      );
-    } catch (error) {
-      assert.equal(error.reason, "invalid address");
-    }
+  describe("#transferAndCall(address,uint256,bytes)", () => {
+    let value = 1000;
+
+    beforeEach(async () => {
+      recipient = await BrgReceiver.deployed();
+
+      assert.equal(await token.allowance.call(owner, recipient.address), 0);
+      assert.equal(await token.balanceOf.call(recipient.address), 0);
+    });
+
+    it("should NOT let you transfer to an empty address", async () => {
+      try {
+        await token.transferAndCall(emptyAddress, value, "0x6c00", {
+          from: owner,
+          shouldPollResponse: true,
+        });
+        assert(false, "didn't throw");
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+
+    it("should NOT let you transfer to the token contract itself", async () => {
+      try {
+        await token.transferAndCall(token.address, value, "0x6c00", {
+          from: owner,
+          shouldPollResponse: true,
+        });
+        assert(
+          false,
+          "didn't throw in case of transfering the token to the token contract"
+        );
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+
+    it("should transfer the amount to the contract and call the contract", async () => {
+      await token.transferAndCall(recipient.address, value, "0x6c00", {
+        from: owner,
+        shouldPollResponse: true,
+      });
+
+      let balance = await token.balanceOf.call(recipient.address);
+      assert.equal(balance.toString(), value);
+
+      assert.equal(await token.allowance.call(owner, recipient.address), 0);
+      assert.equal(await recipient.fallbackCalled(), true);
+    });
+  });
+
+  describe("#approve", () => {
+    let amount = 1000;
+
+    it("should allow token approval amounts to be updated without first resetting to zero", async () => {
+      let originalApproval = 1000;
+      await token.approve(recipient.address, originalApproval, {
+        from: owner,
+      });
+      let approvedAmount = await token.allowance.call(owner, recipient.address);
+      assert.equal(approvedAmount.toString(), originalApproval);
+
+      let laterApproval = 2000;
+      await token.approve(recipient.address, laterApproval, { from: owner });
+      approvedAmount = await token.allowance.call(owner, recipient.address);
+      assert.equal(approvedAmount.toString(), laterApproval);
+    });
+
+    it("should throw an error when approving to an empty address", async () => {
+      try {
+        await token.approve(emptyAddress, amount, {
+          from: owner,
+          shouldPollResponse: true,
+        });
+        assert.equal(false, "didn't throw");
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+
+    it("should throw an error when approving to the token contract itself", async () => {
+      try {
+        await token.approve(token.address, amount, {
+          from: owner,
+          shouldPollResponse: true,
+        });
+        assert.equal(
+          false,
+          "didn't throw in case of approving to the token contract"
+        );
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+  });
+
+  describe("#transferFrom", () => {
+    let amount = 1000;
+
+    beforeEach(async () => {
+      await token.transfer(recipient.address, amount, { from: owner });
+      await token.approve(owner, amount, { from: recipient });
+    });
+
+    it("should throw an error when transferring to an empty address", async () => {
+      try {
+        await token.transferFrom(recipient.address, emptyAddress, amount, {
+          from: owner,
+          shouldPollResponse: true,
+        });
+        assert.equal(
+          false,
+          "didn't throw in case of trasfering to an empty address"
+        );
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+
+    it("should throw an error when transferring to the token contract itself", async () => {
+      try {
+        await token.transferFrom(recipient.address, token.address, amount, {
+          from: owner,
+          shouldPollResponse: true,
+        });
+        assert.equal(
+          false,
+          "didn't throw in case of transfering to the token contract"
+        );
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+  });
+
+  describe("#freeze", () => {
+    let user, frozenAmount;
+
+    beforeEach(async () => {
+      user = accounts[3];
+      frozenAmount = 500;
+
+      await token.transfer(accounts[4], 50, { from: owner });
+    });
+
+    it("should check frozen mapping", async () => {
+      await token.freeze(user, frozenAmount, {
+        from: owner,
+      });
+      assert.equal(await token.frozenOf.call(user), frozenAmount);
+    });
+
+    it("should throw an error when transferring frozen balance to another", async () => {
+      try {
+        await token.transfer(owner, frozenAmount, {
+          from: user,
+          shouldPollResponse: true,
+        });
+        assert(
+          false,
+          "didn't throw in case of transferring frozen balance to another address"
+        );
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+
+    it("should prevent non-owners from freezing", async () => {
+      try {
+        await token.freeze(user, 100, {
+          from: accounts[4],
+          shouldPollResponse: true,
+        });
+        assert(
+          false,
+          "didn't throw in case of freezing asset by non-owner address"
+        );
+      } catch (error) {
+        assert.equal(error, "REVERT opcode executed");
+      }
+    });
+  });
+
+  describe("#melt", () => {
+    let user, frozenAmount;
+
+    beforeEach(async () => {
+      user = accounts[3];
+      frozenAmount = 500;
+    });
+
+    it("should transfer molten amount of asset", async () => {
+      await token.melt(user, frozenAmount, { from: owner });
+      assert.equal(await token.frozenOf(user), 0);
+
+      await token.transfer(owner, frozenAmount, { from: user });
+      assert.equal(await token.balanceOf(user), 0);
+    });
   });
 });
